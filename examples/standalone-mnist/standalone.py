@@ -12,7 +12,7 @@ import torch
 # sys.path.append("../../")
 torch.manual_seed(0)
 
-from fedlab.core.client.scale.trainer import SubsetSerialTrainer
+from fedlab.core.client.scale.trainer import SubsetSerialTrainer, SubsetSerialTrainerWithDifferentialUpdate
 from fedlab.utils.aggregator import Aggregators
 from fedlab.utils.serialization import SerializationTool
 from fedlab.utils.functional import evaluate
@@ -78,7 +78,7 @@ else:
 
 # FL settings
 num_per_round = int(args.total_client * args.sample_ratio)
-aggregator = Aggregators.fedavg_aggregate
+aggregator = Aggregators.krum_aggregate
 total_client_num = args.total_client  # client总数
 
 data_indices = load_dict("examples\standalone-mnist\mnist_partition.pkl")
@@ -86,7 +86,7 @@ data_indices = load_dict("examples\standalone-mnist\mnist_partition.pkl")
 # fedlab setup
 local_model = deepcopy(model)
 
-trainer = SubsetSerialTrainer(model=local_model,
+trainer = SubsetSerialTrainerWithDifferentialUpdate(model=local_model,
                               dataset=trainset,
                               data_slices=data_indices,
                               aggregator=aggregator,
@@ -103,9 +103,9 @@ for round in range(args.com_round):
     selection = random.sample(to_select, num_per_round)
     aggregated_parameters = trainer.train(model_parameters=model_parameters,
                                           id_list=selection,
-                                          aggregate=True)
+                                          aggregate=True, discard_fraction=0.4)
 
-    SerializationTool.deserialize_model(model, aggregated_parameters)
+    SerializationTool.deserialize_model(model, model_parameters + aggregated_parameters)
 
     criterion = nn.CrossEntropyLoss()
     loss, acc = evaluate(model, criterion, test_loader)

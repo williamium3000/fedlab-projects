@@ -57,7 +57,7 @@ class SerialTrainer(ClientTrainer):
         """Get :class:`DataLoader` for ``client_id``."""
         raise NotImplementedError()
 
-    def train(self, model_parameters, id_list, aggregate=False):
+    def train(self, model_parameters, id_list, aggregate=False, **kwargs):
         """Train local model with different dataset according to client id in ``id_list``.
 
         Args:
@@ -87,7 +87,56 @@ class SerialTrainer(ClientTrainer):
 
         if aggregate is True and self.aggregator is not None:
             # aggregate model parameters of this client group
-            aggregated_parameters = self.aggregator(param_list)
+            aggregated_parameters = self.aggregator(param_list, **kwargs)
+            return aggregated_parameters
+        else:
+            return param_list
+
+class SerialTrainerWithDifferentialUpdate(SerialTrainer):
+    """Base class. Train multiple clients in sequence with a single process with update output. 
+    Notice this trainer outputs only client update (in differential form) instead of actual parameters.
+
+    Args:
+        model (torch.nn.Module): Model used in this federation.
+        client_num (int): Number of clients in current trainer.
+        aggregator (Aggregators, callable, optional): Function to perform aggregation on a list of serialized model parameters.
+        cuda (bool): Use GPUs or not. Default: ``False``.
+        logger (Logger, optional): object of :class:`Logger`.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def train(self, model_parameters, id_list, aggregate=False, **kwargs):
+        """Train local model with different dataset according to client id in ``id_list``.
+
+        Args:
+            model_parameters (torch.Tensor): Serialized model parameters.
+            id_list (list[int]): Client id in this training serial.
+            aggregate (bool): Whether to perform partial aggregation on this group of clients' local models at the end of each local training round.
+
+        Note:
+            Normally, aggregation is performed by server, while we provide :attr:`aggregate` option here to perform
+            partial aggregation on current client group. This partial aggregation can reduce the aggregation workload
+            of server.
+
+        Returns:
+            Serialized model parameters / list of model parameters.
+        """
+        param_list = []
+        self._LOGGER.info(
+            "Local training with client id list: {}".format(id_list))
+        for idx in id_list:
+            self._LOGGER.info(
+                "Starting training procedure of client [{}]".format(idx))
+
+            data_loader = self._get_dataloader(client_id=idx)
+            self._train_alone(model_parameters=model_parameters,
+                              train_loader=data_loader)
+            param_list.append(self.model_parameters - model_parameters) # use difference instead
+        if aggregate is True and self.aggregator is not None:
+            # aggregate model parameters of this client group
+            aggregated_parameters = self.aggregator(param_list, **kwargs)
             return aggregated_parameters
         else:
             return param_list
@@ -181,3 +230,23 @@ class SubsetSerialTrainer(SerialTrainer):
                 optimizer.step()
 
         return self.model_parameters
+
+
+class SubsetSerialTrainerWithDifferentialUpdate(SubsetSerialTrainer, SerialTrainerWithDifferentialUpdate):
+    """Train multiple clients in a single process with update output. Notice this trainer outputs only client update (in differential form) 
+    instead of actual parameters.
+
+    Customize :meth:`_get_dataloader` or :meth:`_train_alone` for specific algorithm design in clients.
+
+    Args:
+        model (torch.nn.Module): Model used in this federation.
+        dataset (torch.utils.data.Dataset): Local dataset for this group of clients.
+        data_slices (list[list]): subset of indices of dataset.
+        aggregator (Aggregators, callable, optional): Function to perform aggregation on a list of model parameters.
+        logger (Logger, optional): object of :class:`Logger`.
+        cuda (bool): Use GPUs or not. Default: ``False``.
+        args (dict, optional): Uncertain variables.
+
+    .. note::
+        ``len(data_slices) == client_num``, that is, each sub-index of :attr:`dataset` corresponds to a client's local dataset one-by-one.
+    """
