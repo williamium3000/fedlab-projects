@@ -83,7 +83,51 @@ class Aggregators(object):
                                           dim=-1)
 
         return serialized_parameters
-    
+    @staticmethod
+    def geometric_median_aggregate(serialized_params_list, weights=None, max_iter=4, eps=1e-5, verbose=False, ftol=1e-6):
+        """FedAvg aggregator bounded with norm. Notice this aggregator requires differential input.
+
+        Paper: http://proceedings.mlr.press/v54/mcmahan17a.html
+
+        Args:
+            serialized_params_list (list[torch.Tensor])): Each tensor represent one client update (in differential form).
+            weights (list, numpy.array or torch.Tensor, optional): 
+            Weights for each params, the length of weights need to be same as 
+            length of ``serialized_params_list``. Default: None.
+            max_norm (float): Maximum norm. Update is norm bounded by this. Default: None.
+            p (int, float, inf, -inf, 'fro', 'nuc', optional): the order of norm. Default: 'fro'.
+        Returns:
+            torch.Tensor
+        """
+        if weights is None:
+            weights = torch.ones(len(serialized_params_list))
+
+        if not isinstance(weights, torch.Tensor):
+            weights = torch.tensor(weights)
+        
+        weights = weights / torch.sum(weights)
+        assert torch.all(weights >= 0), "weights should be non-negative values"
+
+        median = Aggregators.fedavg_aggregate(serialized_params_list, weights)
+        objetive = (torch.norm(torch.stack(serialized_params_list, dim=0) - median.unsqueeze(0), dim=-1) * weights).sum()
+        
+        for i in range(max_iter):
+            prev_median, prev_obj = median, objetive
+            weights = weights / torch.maximum(torch.ones_like(weights) * eps, torch.norm(torch.stack(serialized_params_list, dim=0) - median.unsqueeze(0), dim=-1))
+            weights = weights / weights.sum()
+            median = Aggregators.fedavg_aggregate(serialized_params_list, weights)
+            objetive = (torch.norm(torch.stack(serialized_params_list, dim=0) - median.unsqueeze(0), dim=-1) * weights).sum()
+            if verbose:
+                print("iter {}: obj {}, increase obj {}, increase median {}".format(
+                    i + 1,
+                    objetive.item(),
+                    (prev_obj - objetive) / objetive,
+                    torch.norm(median - prev_median).item()
+                ))
+            if abs(prev_obj - objetive) < ftol * objetive:
+                break
+
+        return median
     @staticmethod
     def krum_aggregate(serialized_params_list, weights=None, discard_fraction=None):
         """FedAvg aggregator bounded with norm. Notice this aggregator requires differential input.

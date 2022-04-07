@@ -78,7 +78,7 @@ else:
 
 # FL settings
 num_per_round = int(args.total_client * args.sample_ratio)
-aggregator = Aggregators.krum_aggregate
+aggregator = Aggregators.geometric_median_aggregate
 total_client_num = args.total_client  # client总数
 
 data_indices = load_dict("examples\standalone-mnist\mnist_partition.pkl")
@@ -103,7 +103,7 @@ for round in range(args.com_round):
     selection = random.sample(to_select, num_per_round)
     aggregated_parameters = trainer.train(model_parameters=model_parameters,
                                           id_list=selection,
-                                          aggregate=True, discard_fraction=0.4)
+                                          aggregate=True, verbose=True)
 
     SerializationTool.deserialize_model(model, model_parameters + aggregated_parameters)
 
