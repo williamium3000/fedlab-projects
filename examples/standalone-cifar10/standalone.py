@@ -6,15 +6,18 @@ from copy import deepcopy
 import torchvision
 import torchvision.transforms as transforms
 from torch import nn
+from torch.nn import functional as F 
 import sys
 import torch
+import numpy as np
 
 # sys.path.append("../../")
 torch.manual_seed(0)
 
-from fedlab.core.client.scale.trainer import SubsetSerialTrainer
+from fedlab.core.client.scale.trainer import SubsetSerialTrainer, SubsetSerialTrainerWithDifferentialUpdate
 from fedlab.utils.aggregator import Aggregators
 from fedlab.utils.serialization import SerializationTool
+from fedlab.utils.dataset.partition import CIFAR10Partitioner
 from fedlab.utils.functional import evaluate
 from fedlab.utils.functional import get_best_gpu, load_dict
 
@@ -26,41 +29,50 @@ parser.add_argument("--com_round", type=int, default=10)
 parser.add_argument("--sample_ratio", type=float)
 parser.add_argument("--batch_size", type=int)
 parser.add_argument("--epochs", type=int)
-parser.add_argument("--lr", type=float, default=0.02)
+parser.add_argument("--lr", type=float, default=0.1)
 parser.add_argument("--cuda", type=bool, default=False)
 
 args = parser.parse_args()
 
 
 # torch model
-class MLP(nn.Module):
+class CNN(nn.Module):
 
-    def __init__(self, input_size=784, output_size=10):
-        super(MLP, self).__init__()
-        self.fc1 = nn.Linear(input_size, 200)
-        self.fc2 = nn.Linear(200, 200)
-        self.fc3 = nn.Linear(200, output_size)
-        self.relu = nn.ReLU()
+    def __init__(self, input_size=32, input_channel=3, output_size=10):
+        super(CNN, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=input_channel, out_channels=32 , kernel_size=5, padding=2)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=5, padding=2)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        in_features = 64 * ((input_size // 4) ** 2)
+        self.fc1 = nn.Linear(in_features, 512) 
+        self.fc2 = nn.Linear(512, output_size) 
 
     def forward(self, x):
-        x = x.view(x.shape[0], -1)
-        x = self.relu(self.fc1(x))
-        x = self.relu(self.fc2(x))
-        x = self.fc3(x)
+        x = F.relu(self.pool(self.conv1(x)))
+        x = F.relu(self.pool(self.conv2(x)))
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
         return x
 
 
 # get mnist dataset
-root = "../dataSet/mnist/"
-trainset = torchvision.datasets.MNIST(root=root,
+root = "../dataSet/cifar10/"
+transform = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.491, 0.482, 0.447], std=[0.247, 0.243, 0.262])
+    ]
+)
+trainset = torchvision.datasets.CIFAR10(root=root,
                                       train=True,
                                       download=True,
-                                      transform=transforms.ToTensor())
+                                      transform=transform)
 
-testset = torchvision.datasets.MNIST(root=root,
+testset = torchvision.datasets.CIFAR10(root=root,
                                      train=False,
                                      download=True,
-                                     transform=transforms.ToTensor())
+                                     transform=transform)
 
 test_loader = torch.utils.data.DataLoader(testset,
                                           batch_size=len(testset),
@@ -72,16 +84,16 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 
 if args.cuda:
     gpu = get_best_gpu()
-    model = MLP().cuda(gpu)
+    model = CNN().cuda(gpu)
 else:
-    model = MLP()
+    model = CNN()
 
 # FL settings
 num_per_round = int(args.total_client * args.sample_ratio)
 aggregator = Aggregators.fedavg_aggregate
 total_client_num = args.total_client  # client总数
 
-data_indices = load_dict("examples/standalone-mnist/mnist_partition.pkl")
+data_indices = CIFAR10Partitioner(trainset.targets, args.total_client, True, "iid").client_dict
 
 # fedlab setup
 local_model = deepcopy(model)
@@ -93,7 +105,8 @@ trainer = SubsetSerialTrainer(model=local_model,
                               args={
                                   "batch_size": args.batch_size,
                                   "epochs": args.epochs,
-                                  "optim":{"lr": args.lr}
+                                  "max_norm":10,
+                                  "optim":{"lr": args.lr, "weight_decay":1e-3}
                               })
 
 # train procedure

@@ -210,10 +210,11 @@ class SubsetSerialTrainer(SerialTrainer):
             model_parameters (torch.Tensor): serialized model parameters.
             train_loader (torch.utils.data.DataLoader): :class:`torch.utils.data.DataLoader` for this client.
         """
-        epochs, lr = self.args["epochs"], self.args["lr"]
+        epochs = self.args["epochs"]
+        optim_cfg = self.args["optim"]
         SerializationTool.deserialize_model(self._model, model_parameters)
         criterion = torch.nn.CrossEntropyLoss()
-        optimizer = torch.optim.SGD(self._model.parameters(), lr=lr)
+        optimizer = torch.optim.SGD(self._model.parameters(), **optim_cfg)
         self._model.train()
 
         for _ in range(epochs):
@@ -227,6 +228,8 @@ class SubsetSerialTrainer(SerialTrainer):
 
                 optimizer.zero_grad()
                 loss.backward()
+                if "max_norm" in self.args.keys():
+                    torch.nn.utils.clip_grad_norm_(parameters=self.model.parameters(), max_norm=self.args["max_norm"]) # Clip gradients
                 optimizer.step()
 
         return self.model_parameters
