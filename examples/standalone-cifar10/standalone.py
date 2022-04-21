@@ -40,7 +40,7 @@ class CNN(nn.Module):
 
     def __init__(self, input_size=32, input_channel=3, output_size=10):
         super(CNN, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=input_channel, out_channels=32 , kernel_size=5)
+        self.conv1 = nn.Conv2d(in_channels=input_channel, out_channels=32, kernel_size=5)
         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=5)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         in_features = 64 * ((((input_size - 4) // 2) - 4) // 2) ** 2
@@ -84,6 +84,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 
 if args.cuda:
     gpu = get_best_gpu()
+    print("using {}".format(gpu))
     model = CNN().cuda(gpu)
 else:
     model = CNN()
