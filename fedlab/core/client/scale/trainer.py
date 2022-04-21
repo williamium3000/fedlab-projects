@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import torch
+import copy
 
 from ...client import SERIAL_TRAINER
 from ..trainer import ClientTrainer
@@ -211,10 +212,11 @@ class SubsetSerialTrainer(SerialTrainer):
             train_loader (torch.utils.data.DataLoader): :class:`torch.utils.data.DataLoader` for this client.
         """
         epochs = self.args["epochs"]
-        optim_cfg = self.args["optim"]
+        optim_cfg = copy.deepcopy(self.args["optim"])
+        optim_type = optim_cfg.pop("type")
         SerializationTool.deserialize_model(self._model, model_parameters)
         criterion = torch.nn.CrossEntropyLoss()
-        optimizer = torch.optim.SGD(self._model.parameters(), **optim_cfg)
+        optimizer = getattr(torch.optim, optim_type)(self._model.parameters(), **optim_cfg)
         self._model.train()
 
         for _ in range(epochs):
