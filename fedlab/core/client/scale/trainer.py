@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import torch
 import copy
 
@@ -20,6 +19,7 @@ from ..trainer import ClientTrainer
 from ....utils.serialization import SerializationTool
 from ....utils.dataset.sampler import SubsetSampler
 from ....utils import Logger
+from ....utils.functional import AverageMeter
 
 
 class SerialTrainer(ClientTrainer):
@@ -78,13 +78,13 @@ class SerialTrainer(ClientTrainer):
         self._LOGGER.info(
             "Local training with client id list: {}".format(id_list))
         for idx in id_list:
-            self._LOGGER.info(
-                "Starting training procedure of client [{}]".format(idx))
-
             data_loader = self._get_dataloader(client_id=idx)
-            self._train_alone(model_parameters=model_parameters,
+            loss_i, acc_i = self._train_alone(model_parameters=model_parameters,
                               train_loader=data_loader)
             param_list.append(self.model_parameters)
+            self._LOGGER.info(
+                "Training procedure of client {} [loss {:.2f}, acc {:.2f}]".format(idx, loss_i, acc_i))
+
 
         if aggregate is True and self.aggregator is not None:
             # aggregate model parameters of this client group
@@ -219,6 +219,8 @@ class SubsetSerialTrainer(SerialTrainer):
         optimizer = getattr(torch.optim, optim_type)(self._model.parameters(), **optim_cfg)
         self._model.train()
 
+        loss_ = AverageMeter()
+        acc_ = AverageMeter()
         for _ in range(epochs):
             for data, target in train_loader:
                 if self.cuda:
@@ -233,8 +235,12 @@ class SubsetSerialTrainer(SerialTrainer):
                 if "max_norm" in self.args.keys():
                     torch.nn.utils.clip_grad_norm_(parameters=self.model.parameters(), max_norm=self.args["max_norm"]) # Clip gradients
                 optimizer.step()
-
-        return self.model_parameters
+                
+                loss_.update(loss.item())
+                _, predicted = torch.max(output, 1)
+                acc_.update(torch.sum(predicted.eq(target)).item(), len(data))
+                
+        return loss_.avg, acc_.avg
 
 
 class SubsetSerialTrainerWithDifferentialUpdate(SubsetSerialTrainer, SerialTrainerWithDifferentialUpdate):

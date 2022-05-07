@@ -59,7 +59,7 @@ def evaluate(model, criterion, test_loader):
             loss_.update(loss.item())
             acc_.update(torch.sum(predicted.eq(labels)).item(), len(labels))
 
-    return loss_.sum, acc_.avg
+    return loss_.avg, acc_.avg
 
 
 def read_config_from_json(json_file: str, user_name: str):
