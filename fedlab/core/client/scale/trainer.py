@@ -245,6 +245,20 @@ class SubsetSerialTrainer(SerialTrainer):
 class SubsetSerialTrainerStateDict(SubsetSerialTrainer):
     def __init__(self, **kwargs):
         super(SubsetSerialTrainerStateDict, self).__init__(**kwargs)
+    @property
+    def model_parameters(self):
+        """Return serialized model parameters."""
+        return SerializationTool.deserialize_state_dict(self._model)
+
+
+    @property
+    def shape_list(self):
+        """Return shape of model parameters.
+        
+        Currently, this attributes used in tensor compression.
+        """
+        shape_list = [param.shape for _, param in self._model.model.state_dict().items()]
+        return shape_list
     def _train_alone(self, model_parameters, train_loader):
         """Single round of local training for one client.
 
