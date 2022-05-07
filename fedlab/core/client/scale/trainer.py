@@ -248,7 +248,7 @@ class SubsetSerialTrainerStateDict(SubsetSerialTrainer):
     @property
     def model_parameters(self):
         """Return serialized model parameters."""
-        return SerializationTool.deserialize_state_dict(self._model)
+        return SerializationTool.serialize_state_dict(self._model)
 
 
     @property
