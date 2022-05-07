@@ -242,8 +242,69 @@ class SubsetSerialTrainer(SerialTrainer):
                 
         return loss_.avg, acc_.avg
 
+class SubsetSerialTrainerStateDict(SubsetSerialTrainer):
+    def __init__(self, **kwargs):
+        super(SubsetSerialTrainerStateDict, self).__init__(**kwargs)
+    def _train_alone(self, model_parameters, train_loader):
+        """Single round of local training for one client.
 
+        Note:
+            Overwrite this method to customize the PyTorch training pipeline.
+
+        Args:
+            model_parameters (torch.Tensor): serialized model parameters.
+            train_loader (torch.utils.data.DataLoader): :class:`torch.utils.data.DataLoader` for this client.
+        """
+        epochs = self.args["epochs"]
+        optim_cfg = copy.deepcopy(self.args["optim"])
+        optim_type = optim_cfg.pop("type")
+        SerializationTool.deserialize_state_dict(self._model, model_parameters)
+        criterion = torch.nn.CrossEntropyLoss()
+        optimizer = getattr(torch.optim, optim_type)(self._model.parameters(), **optim_cfg)
+        self._model.train()
+
+        loss_ = AverageMeter()
+        acc_ = AverageMeter()
+        for _ in range(epochs):
+            for data, target in train_loader:
+                if self.cuda:
+                    data = data.cuda(self.gpu)
+                    target = target.cuda(self.gpu)
+
+                output = self.model(data)
+                loss = criterion(output, target)
+
+                optimizer.zero_grad()
+                loss.backward()
+                if "max_norm" in self.args.keys():
+                    torch.nn.utils.clip_grad_norm_(parameters=self.model.parameters(), max_norm=self.args["max_norm"]) # Clip gradients
+                optimizer.step()
+                
+                loss_.update(loss.item())
+                _, predicted = torch.max(output, 1)
+                acc_.update(torch.sum(predicted.eq(target)).item(), len(data))
+                
+        return loss_.avg, acc_.avg
 class SubsetSerialTrainerWithDifferentialUpdate(SubsetSerialTrainer, SerialTrainerWithDifferentialUpdate):
+    """Train multiple clients in a single process with update output. Notice this trainer outputs only client update (in differential form) 
+    instead of actual parameters.
+
+    Customize :meth:`_get_dataloader` or :meth:`_train_alone` for specific algorithm design in clients.
+
+    Args:
+        model (torch.nn.Module): Model used in this federation.
+        dataset (torch.utils.data.Dataset): Local dataset for this group of clients.
+        data_slices (list[list]): subset of indices of dataset.
+        aggregator (Aggregators, callable, optional): Function to perform aggregation on a list of model parameters.
+        logger (Logger, optional): object of :class:`Logger`.
+        cuda (bool): Use GPUs or not. Default: ``False``.
+        args (dict, optional): Uncertain variables.
+
+    .. note::
+        ``len(data_slices) == client_num``, that is, each sub-index of :attr:`dataset` corresponds to a client's local dataset one-by-one.
+    """
+
+class SubsetSerialTrainerWithDifferentialUpdateStateDict(SubsetSerialTrainerStateDict, SerialTrainerWithDifferentialUpdate):
     """Train multiple clients in a single process with update output. Notice this trainer outputs only client update (in differential form) 
     instead of actual parameters.
 
