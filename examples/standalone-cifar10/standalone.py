@@ -91,7 +91,7 @@ else:
 
 # FL settings
 num_per_round = int(args.total_client * args.sample_ratio)
-aggregator = Aggregators.fedavg_aggregate
+aggregator = Aggregators.pca_aggregate
 total_client_num = args.total_client  # client总数
 
 data_indices = CIFAR10Partitioner(trainset.targets, args.total_client, True, "iid").client_dict
@@ -99,7 +99,7 @@ data_indices = CIFAR10Partitioner(trainset.targets, args.total_client, True, "ii
 # fedlab setup
 local_model = deepcopy(model)
 
-trainer = SubsetSerialTrainer(model=local_model,
+trainer = SubsetSerialTrainerWithDifferentialUpdate(model=local_model,
                               dataset=trainset,
                               data_slices=data_indices,
                               aggregator=aggregator,
@@ -117,9 +117,9 @@ for round in range(args.com_round):
     selection = random.sample(to_select, num_per_round)
     aggregated_parameters = trainer.train(model_parameters=model_parameters,
                                           id_list=selection,
-                                          aggregate=True)
+                                          aggregate=True, n_components=5)
 
-    SerializationTool.deserialize_model(model, aggregated_parameters)
+    SerializationTool.deserialize_model(model, aggregated_parameters + model_parameters)
 
     criterion = nn.CrossEntropyLoss()
     loss, acc = evaluate(model, criterion, test_loader)

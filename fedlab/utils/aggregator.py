@@ -14,7 +14,7 @@
 
 import torch
 import math
-
+from sklearn import decomposition
 
 class Aggregators(object):
     """Define the algorithm of parameters aggregation"""
@@ -83,6 +83,32 @@ class Aggregators(object):
                                           dim=-1)
 
         return serialized_parameters
+    @staticmethod
+    def pca_aggregate(serialized_params_list, n_components=1, weights=None):
+        """FedAvg aggregator bounded with norm. Notice this aggregator requires differential input.
+
+        Paper: http://proceedings.mlr.press/v54/mcmahan17a.html
+
+        Args:
+            serialized_params_list (list[torch.Tensor])): Each tensor represent one client update (in differential form).
+            weights (list, numpy.array or torch.Tensor, optional): 
+            Weights for each params, the length of weights need to be same as 
+            length of ``serialized_params_list``. Default: None.
+            max_norm (float): Maximum norm. Update is norm bounded by this. Default: None.
+            p (int, float, inf, -inf, 'fro', 'nuc', optional): the order of norm. Default: 'fro'.
+        Returns:
+            torch.Tensor
+        """
+        assert weights is None, "weighted pca is not supported"
+        pca = decomposition.PCA(n_components=n_components)
+        serialized_parameters = torch.stack(serialized_params_list, dim=0)
+        pca.fit(serialized_parameters.clone().numpy())
+        principal_direction = torch.from_numpy(pca.components_)
+        step_per_direction = (principal_direction @ serialized_parameters.T).sum(dim=-1, keepdim=True)
+        serialized_parameters = (step_per_direction * principal_direction).sum(dim=0)
+
+        return serialized_parameters
+    
     @staticmethod
     def geometric_median_aggregate(serialized_params_list, weights=None, max_iter=4, eps=1e-5, verbose=False, ftol=1e-6):
         """FedAvg aggregator bounded with norm. Notice this aggregator requires differential input.
